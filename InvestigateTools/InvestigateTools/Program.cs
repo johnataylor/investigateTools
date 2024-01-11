@@ -1,6 +1,8 @@
 ﻿
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.Configuration;
+using System.Numerics;
+using System.Text.Json;
 
 internal class Program
 {
@@ -18,14 +20,19 @@ internal class Program
 
         var schema = await File.ReadAllTextAsync("..\\..\\..\\schema.json");
 
-        toolDefinition.Name = "getWeather";
-        toolDefinition.Description = "Provides teh current weather for a specific location";
+        toolDefinition.Name = "GetWeather";
+        toolDefinition.Description = "Provides the current weather for a specific location.";
         toolDefinition.Parameters = BinaryData.FromString(schema);
 
         var options = new ChatCompletionsOptions();
         options.DeploymentName = "gpt-4-1106-preview";
         options.Tools.Add(toolDefinition);
-        options.Messages.Add(new ChatRequestUserMessage("what is the weather in San Francisco?"));
+        options.Messages.Add(new ChatRequestUserMessage("what is the weather in SEattle, San Francisco and London?"));
+
+        var functions = new Dictionary<string, Func<string, string>>
+        {
+            { nameof(GetWeather), GetWeather }
+        };
 
         while (true)
         {
@@ -46,12 +53,34 @@ internal class Program
                 {
                     if (toolCall is ChatCompletionsFunctionToolCall functionToolCall)
                     {
-                        await Console.Out.WriteLineAsync($"{functionToolCall.Name}({functionToolCall.Arguments})");
-                        options.Messages.Add(new ChatRequestToolMessage("sunny", toolCall.Id));
+                        var output = functions[functionToolCall.Name](functionToolCall.Arguments);
+                        options.Messages.Add(new ChatRequestToolMessage(output, toolCall.Id));
                     }
                 }
             }
         }
+    }
+
+    private static string GetWeather(string arguments)
+    {
+        var obj = JsonDocument.Parse(arguments).RootElement;
+
+        var location = obj.GetProperty("location").GetString() ?? throw new Exception("expected property 'location'");
+
+        if (location.Contains("San Francisco", StringComparison.InvariantCultureIgnoreCase))
+        {
+            return "sunny";
+        }
+        if (location.Contains("London", StringComparison.InvariantCultureIgnoreCase))
+        {
+            return "rainy";
+        }
+        if (location.Contains("Seattle", StringComparison.InvariantCultureIgnoreCase))
+        {
+            return "snowing";
+        }
+
+        return "unknown";
     }
 
     private static void Main(string[] args)
